@@ -1,1 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Formulario de Disponibilidad</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: white;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #ff9800;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+    select, input[type="datetime-local"], button {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border-radius: 4px;
+      border: none;
+      margin-bottom: 10px;
+    }
+    button {
+      background-color: #ff9800;
+      color: black;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: 0.3s ease;
+    }
+    button:hover {
+      background-color: #e68900;
+      color: white;
+      box-shadow: 0 4px 10px rgba(230, 137, 0, 0.7);
+      transform: scale(1.05);
+    }
+    button:active {
+      transform: scale(0.95);
+    }
+    .tabla-previa {
+      margin-top: 20px;
+      overflow-x: auto;
+    }
+    .fila {
+      display: flex;
+      flex-wrap: wrap;
+      margin-bottom: 5px;
+    }
+    .titulo-dia {
+      font-weight: bold;
+      font-size: 16px;
+      margin: 10px 0 5px;
+      color: #ff9800;
+    }
+    .celda {
+      width: 60px;
+      height: 30px;
+      border: 1px solid #444;
+      margin: 1px;
+      text-align: center;
+      line-height: 30px;
+      font-size: 12px;
+      color: white;
+    }
+    .disponible { background-color: #4caf50; }
+    .talvez     { background-color: #ffc107; color: black; }
+    .nodispo    { background-color: #f44336; }
+    .leyenda {
+      margin-top: 30px;
+      font-size: 14px;
+      text-align: center;
+      color: #aaa;
+    }
+
+    #loading {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+    .spinner {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #ff9800;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    #toast {
+      visibility: hidden;
+      min-width: 250px;
+      background-color: #333;
+      color: white;
+      text-align: center;
+      border-radius: 6px;
+      padding: 14px;
+      position: fixed;
+      z-index: 10000;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 30px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.5s ease-in-out, visibility 0.5s;
+    }
+    #toast.show {
+      visibility: visible;
+      opacity: 1;
+    }
+    #toast.success { background-color: #4caf50; }
+    #toast.error   { background-color: #f44336; }
+  </style>
+</head>
+<body>
+
+<h1>Disponibilidad - Porsche GT3</h1>
+
+<form id="formulario">
+  <label for="nombre">Elige tu nombre:</label>
+  <select id="nombre" name="nombre" required>
+    <option value="">--</option>
+    <option value="Nico">Nico</option>
+    <option value="Krilin">Krilin</option>
+    <option value="Mateo">Mateo</option>
+    <option value="Jaime">Jaime</option>
+    <option value="Achojose">Achojose</option>
+  </select>
+
+  <label for="rol">Elige tu rol:</label>
+  <select id="rol" name="rol" required>
+    <option value="">--</option>
+    <option value="Piloto">Piloto</option>
+    <option value="Spotter">Spotter</option>
+  </select>
+
+  <label for="estado">Disponibilidad:</label>
+  <select id="estado" name="estado" required>
+    <option value="">--</option>
+    <option value="Disponible">Disponible</option>
+    <option value="Tal vez">Tal vez</option>
+    <option value="No disponible">No disponible</option>
+  </select>
+
+  <label for="desde">Desde:</label>
+  <input type="datetime-local" id="desde" required min="2025-07-12T13:00" max="2025-07-13T15:00" />
+
+  <label for="hasta">Hasta:</label>
+  <input type="datetime-local" id="hasta" required min="2025-07-12T13:00" max="2025-07-13T15:00" />
+</form>
+
+<div id="vista-previa" class="tabla-previa"></div>
+
+<div class="leyenda">
+  🟩 Disponible | 🟨 Tal vez | 🔴 No disponible
+</div>
+
+<button type="button" onclick="guardarDisponibilidad()">Env disponibilidad</button>
+
+<!-- Animación -->
+<div id="loading">
+  <div style="text-align: center;">
+    <div class="spinner"></div>
+    <p style="margin-top: 10px; color: white;">Enviando disponibilidad...</p>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  const celdaMap = {};
+  const vistaPrevia = document.getElementById("vista-previa");
+
+  const bloques = [
+    { dia: "Sábado 12 de julio", inicio: new Date("2025-07-12T13:00"), fin: new Date("2025-07-13T00:00") },
+    { dia: "Domingo 13 de julio", inicio: new Date("2025-07-13T00:00"), fin: new Date("2025-07-13T15:00") }
+  ];
+
+  function redondear15(fechaInput) {
+    const fecha = new Date(fechaInput);
+    if (isNaN(fecha)) return null;
+    fecha.setSeconds(0, 0);
+    fecha.setMinutes(fecha.getMinutes() - (fecha.getMinutes() % 15));
+    return fecha;
+  }
+
+  function crearVistaPrevia() {
+    vistaPrevia.innerHTML = "";
+    bloques.forEach(b => {
+      const titulo = document.createElement("div");
+      titulo.className = "titulo-dia";
+      titulo.innerText = b.dia;
+      vistaPrevia.appendChild(titulo);
+
+      const fila = document.createElement("div");
+      fila.className = "fila";
+
+      let actual = new Date(b.inicio);
+      while (actual < b.fin) {
+        const clave = redondear15(actual).toISOString();
+        const celda = document.createElement("div");
+        celda.className = "celda";
+        celda.innerText = `${actual.getHours().toString().padStart(2, "0")}:${actual.getMinutes().toString().padStart(2, "0")}`;
+        celdaMap[clave] = celda;
+        fila.appendChild(celda);
+        actual = new Date(actual.getTime() + 15 * 60 * 1000);
+      }
+      vistaPrevia.appendChild(fila);
+    });
+  }
+
+  function pintarVistaPrevia() {
+    Object.values(celdaMap).forEach(c => {
+      c.classList.remove("disponible", "talvez", "nodispo");
+    });
+    const estado = document.getElementById("estado").value;
+    const desdeRaw = document.getElementById("desde").value;
+    const hastaRaw = document.getElementById("hasta").value;
+    if (!estado || !desdeRaw || !hastaRaw) return;
+    const desde = redondear15(desdeRaw);
+    const hasta = redondear15(hastaRaw);
+    if (!desde || !hasta || desde >= hasta) return;
+
+    const clase = estado === "Disponible" ? "disponible" :
+                  estado === "Tal vez" ? "talvez" : "nodispo";
+
+    let actual = new Date(desde);
+    while (actual < hasta) {
+      const clave = actual.toISOString();
+      if (celdaMap[clave]) celdaMap[clave].classList.add(clase);
+      actual = new Date(actual.getTime() + 15 * 60 * 1000);
+    }
+  }
+
+  function mostrarToast(mensaje, tipo = "success") {
+    const toast = document.getElementById("toast");
+    toast.className = `show ${tipo}`;
+    toast.innerText = mensaje;
+    setTimeout(() => {
+      toast.className = toast.className.replace("show", "");
+    }, 3000);
+  }
+
+  function guardarDisponibilidad() {
+    const nombre = document.getElementById("nombre").value.trim();
+    const rol = document.getElementById("rol").value.trim();
+    const estado = document.getElementById("estado").value.trim();
+    const desde = document.getElementById("desde").value.trim();
+    const hasta = document.getElementById("hasta").value.trim();
+
+    if (!nombre || !rol || !estado || !desde || !hasta) {
+      mostrarToast("❌ Por favor, rellena todos los campos", "error");
+      return;
+    }
+
+    const datos = { nombre, rol, estado, desde, hasta };
+    document.getElementById("loading").style.display = "flex";
+
+    fetch("https://script.google.com/macros/s/AKfycbwvAftegvzBaur7STpR7BAS9w7FDwtvI7w7dKOQ7Jii2LXFOS9TJhDmSq3SlSHzBAIU/exec", {
+      method: "POST",
+      body: JSON.stringify(datos),
+      mode: "no-cors"
+    })
+    .then(() => {
+      pintarVistaPrevia();
+      mostrarToast("✅ Guardado correctamente", "success");
+    })
+    .catch(() => {
+      mostrarToast("❌ Error al guardar", "error");
+    })
+    .finally(() => {
+      document.getElementById("loading").style.display = "none";
+    });
+  }
+
+  crearVistaPrevia();
+  ["estado", "desde", "hasta"].forEach(id => {
+    document.getElementById(id).addEventListener("change", pintarVistaPrevia);
+  });
+</script>
+
+</body>
+</html>
 
